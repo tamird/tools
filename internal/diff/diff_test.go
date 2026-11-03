@@ -120,6 +120,18 @@ func TestLineEdits(t *testing.T) {
 	}
 }
 
+func TestUnifiedJoinedEdits(t *testing.T) {
+	// The first two edits share a hunk. The unchanged line between them
+	// counts toward the starting line on both sides of the next hunk.
+	before := "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n"
+	after := "A\nb\nC\nd\ne\nf\ng\nh\ni\nj\nK\n"
+	got := diff.Unified("old", "new", before, after)
+	const header = "@@ -8,4 +8,4 @@"
+	if !strings.Contains(got, "\n"+header+"\n") {
+		t.Errorf("missing second hunk header %q in:\n%s", header, got)
+	}
+}
+
 func TestToUnified(t *testing.T) {
 	// Plan 9 has no patch command, so use ape/patch, the POSIX patch.
 	patch := "patch"
