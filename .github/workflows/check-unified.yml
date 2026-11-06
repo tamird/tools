@@ -1,0 +1,50 @@
+name: Check goimports diff output
+on:
+  push:
+    branches: [check/goimports-diff-858482-v8]
+permissions:
+  contents: read
+jobs:
+  goimports:
+    if: github.repository == 'tamird/tools' && github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Check the exact patch and both packages on Linux
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD^)" = 7a065ec802ee7a1deb4e7c404b4ea3cd40d5eac9
+          git diff --exit-code HEAD^ HEAD -- . ':!.github/workflows/check-unified.yml'
+          git checkout --quiet --detach HEAD^
+          test -z "$(gofmt -l cmd/goimports/goimports.go cmd/goimports/main_test.go)"
+          go test -count=1 -v ./cmd/goimports ./internal/diff/...
+      - name: Verify the real no-argument CLI and write errors
+        run: |
+          set -eu
+          d="$RUNNER_TEMP/goimports-858482"
+          mkdir "$d"
+          go build -o "$d/goimports" ./cmd/goimports
+          printf 'package p\nvar X=1\n' > "$d/input"
+          PATH=/nonexistent TMPDIR="$d/missing" "$d/goimports" -format-only -d < "$d/input" > "$d/diff"
+          printf 'diff -u stdin.go.orig stdin.go\n--- stdin.go.orig\t\n+++ stdin.go\t\n' > "$d/headers"
+          head -n3 "$d/diff" | cmp - "$d/headers"
+          for mode in plain diff; do
+            opts=()
+            if [[ $mode == diff ]]; then opts=(-d); fi
+            result=0
+            "$d/goimports" -format-only "${opts[@]}" < "$d/input" > /dev/full 2> "$d/error" || result=$?
+            test "$result" -eq 2
+            grep -F 'no space left on device' "$d/error"
+          done
+          chmod 444 "$d/input"
+          result=0
+          "$d/goimports" -format-only -w "$d/input" 2> "$d/error" || result=$?
+          test "$result" -eq 2
+          grep -F 'permission denied' "$d/error"
